@@ -25,3 +25,22 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
+
+## Artifacts
+
+### Diet Plan Manager (`artifacts/diet-tracker`)
+- **Type**: Expo mobile app
+- **Preview path**: `/`
+- **Purpose**: 30-day diet plan tracking app
+- **Features**:
+  - JWT-based login (demo credentials stored locally via AsyncStorage)
+  - Dashboard with today's plan, day streak, completion %
+  - Day detail screen with meals (breakfast/lunch/dinner) + exercises
+  - Mark items complete with checkboxes
+  - Upload proof photos via camera or gallery (expo-image-picker)
+  - Progress tracker showing all 30 days
+  - Profile screen with plan details and logout
+  - Expiry warning 3-4 days before plan ends
+  - SVG progress rings (react-native-svg)
+- **Key packages**: @react-native-async-storage/async-storage, expo-image-picker, react-native-svg, expo-haptics
+- **Demo users**: user001/diet123, user002/healthy2024, admin001/admin123

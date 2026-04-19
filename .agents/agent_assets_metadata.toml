@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "vwb7jhrWSFrl6P-BxE-S7"
+uri = "file://artifacts/diet-tracker/assets/images/icon.png"
+type = "image"
+title = "diet tracker app icon"

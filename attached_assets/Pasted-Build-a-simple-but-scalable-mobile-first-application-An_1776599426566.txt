@@ -1,0 +1,124 @@
+Build a simple but scalable mobile-first application (Android-first, web-compatible) for a Diet Plan Management System.
+
+Tech Stack:
+- Frontend: React Native (Expo)
+- Backend: Node.js with Express
+- Database: MongoDB
+- Authentication: JWT-based login
+- Admin Panel: Basic web dashboard (React)
+
+Core Features:
+
+1. User Authentication
+- Users login using a unique ID and password (provided by admin, no signup required)
+- JWT session handling
+- Secure login system
+
+2. User Dashboard
+- Show active diet plan (30-day structured plan)
+- Each day should have:
+  - Breakfast
+  - Lunch
+  - Dinner
+  - Exercises
+- Each item should have:
+  - Description (e.g., “4 soaked almonds + 1 fruit”)
+  - Checkbox (mark as completed)
+  - Upload Photo button (camera or gallery)
+
+3. Daily Tracking System
+- Users must:
+  - Tick checkboxes after completing tasks
+  - Upload proof photos
+- Save:
+  - Completion status
+  - Photo URL
+  - Timestamp
+
+4. Notifications System
+- Daily reminders:
+  - Morning: Breakfast reminder
+  - Afternoon: Lunch reminder
+  - Evening: Exercise + Dinner reminder
+- Plan expiry reminder:
+  - Notify user 3–4 days before plan ends
+
+5. Plan Logic
+- Plan duration: 30 days
+- Start date selected by admin or user
+- Automatically calculate daily schedule based on start date
+
+6. Photo Submission Tracking
+- Store user-uploaded photos in cloud (use Cloudinary or Firebase Storage)
+- Link photos to:
+  - User ID
+  - Day number
+  - Meal type (breakfast/lunch/dinner/exercise)
+
+7. Admin Panel (Web)
+- Admin login
+- Create/edit diet plans
+- Assign plan to users
+- View:
+  - User progress
+  - Completed tasks
+  - Uploaded photos
+- Filter users:
+  - Completed / Not completed
+  - Date-wise tracking
+
+8. Database Structure (MongoDB)
+
+Collections:
+
+Users:
+- userId
+- name
+- password
+- assignedPlanId
+- planStartDate
+
+Plans:
+- planId
+- name
+- days: [
+    {
+      dayNumber,
+      meals: {
+        breakfast,
+        lunch,
+        dinner
+      },
+      exercises
+    }
+  ]
+
+UserProgress:
+- userId
+- dayNumber
+- mealType
+- completed (true/false)
+- photoUrl
+- timestamp
+
+9. UI Requirements
+- Clean, minimal UI
+- Easy navigation (Day-wise tabs or scroll)
+- Big buttons for:
+  - Mark Complete
+  - Upload Photo
+
+10. Additional Requirements
+- Offline support (basic caching)
+- Error handling
+- Loading states
+- Simple and fast performance
+
+11. Output Needed
+- Full working code
+- Setup instructions
+- Environment variables setup
+- API endpoints documentation
+
+Important:
+Keep the app simple. Do NOT over-engineer. Focus on core functionality: tracking, photos, notifications, admin visibility.
