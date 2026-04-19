@@ -8,15 +8,6 @@ import React, {
 } from "react";
 import { useAuth } from "./AuthContext";
 
-export interface Meal {
-  type: "breakfast" | "lunch" | "dinner";
-  description: string;
-}
-
-export interface Exercise {
-  description: string;
-}
-
 export interface DayPlan {
   dayNumber: number;
   meals: {
@@ -85,54 +76,50 @@ const PlanContext = createContext<PlanContextValue>({
   getPhotoUri: () => undefined,
 });
 
+// WHW Diet Level-1 plan translated from the PDF (same daily plan repeated for 30 days)
+const BREAKFAST_DESC =
+  "• 8 soaked almonds\n" +
+  "• Amla juice (Dabur/Baidyanath/Patanjali) 5–7 tsp + 1 glass water\n" +
+  "• Aloe vera juice (Dabur/Baidyanath/Patanjali) 5–7 tsp + 1 glass water\n" +
+  "• Carrot juice 200g + Beetroot 70g\n" +
+  "• Any one: Apple 1 / Orange 3 / Guava 200g / Pomegranate 200g";
+
+const LUNCH_DESC =
+  "• Salad (any one): Carrot 250g OR Cucumber 250g OR Beetroot 70g\n" +
+  "• Grain (any one): Wheat flour 60g OR Rava 60g OR Oats 60g\n" +
+  "• Vegetables: 120g\n" +
+  "• Protein (any one): Paneer 120g / Chickpeas 65g / Moong 65g / Rajma 65g / Egg whites 4 / Fish 175g / Chicken 190g\n" +
+  "• Oil (any one): Ghee / Rice bran oil / Olive oil — 8g\n" +
+  "• After lunch: 100g curd + water + salt + cumin powder\n" +
+  "• 2 tsp roasted flaxseeds";
+
+const DINNER_DESC =
+  "• Salad (any one): Carrot 150g OR Cucumber 200g OR Beetroot 50g\n" +
+  "• Wheat flour 40g (optional, only if needed)\n" +
+  "• Vegetables: 120g\n" +
+  "• Protein (any one): Paneer 120g / Chickpeas 65g / Rajma 65g / Soya wadi 25g / Egg whites 4 / Fish 175g / Chicken 190g\n" +
+  "• Oil (any one): Ghee / Rice bran oil / Olive oil — 8g\n" +
+  "• Drink 1 glass warm water before sleeping";
+
+const EXERCISES = [
+  "Morning: 1.5 glass warm water after waking up, then go for a walk",
+  "Morning walk: 6000–7000 steps — track on Google Fit",
+  "Evening snack (3–6 PM): 8 almonds + green or black tea (no milk/sugar/jaggery)",
+  "Evening walk: 6000–7000 steps — share screenshot on WhatsApp",
+];
+
 const DEMO_PLAN: DietPlan = {
   id: "plan001",
-  name: "30-Day Healthy Living Plan",
-  days: Array.from({ length: 30 }, (_, i) => {
-    const day = i + 1;
-    const mealSets = [
-      {
-        breakfast: "4 soaked almonds + 1 seasonal fruit + 1 glass warm water",
-        lunch: "2 rotis + dal + mixed vegetable sabzi + salad",
-        dinner: "Brown rice + dal + steamed vegetables + buttermilk",
-        exercises: ["30 min brisk walk", "10 min stretching"],
-      },
-      {
-        breakfast: "Oats porridge with banana + green tea",
-        lunch: "Grilled chicken/paneer + quinoa + cucumber salad",
-        dinner: "Vegetable soup + 1 roti + curd",
-        exercises: ["20 min yoga", "15 min light cardio", "5 min meditation"],
-      },
-      {
-        breakfast: "2 boiled eggs + whole wheat toast + orange juice",
-        lunch: "Brown rice + rajma / kidney beans + salad",
-        dinner: "Grilled fish/tofu + stir-fried veggies + green tea",
-        exercises: ["30 min cycling", "10 min core exercises"],
-      },
-      {
-        breakfast: "Smoothie (banana + spinach + almond milk) + 5 walnuts",
-        lunch: "Chickpea salad + 1 roti + fresh lime water",
-        dinner: "Khichdi + steamed broccoli + curd",
-        exercises: ["25 min jogging", "10 min stretching", "5 min breathing"],
-      },
-      {
-        breakfast: "Upma with vegetables + herbal tea",
-        lunch: "Grilled paneer wrap + tomato soup",
-        dinner: "Lentil soup + 2 rotis + mixed vegetable salad",
-        exercises: ["40 min walk", "15 min yoga"],
-      },
-    ];
-    const set = mealSets[(day - 1) % mealSets.length];
-    return {
-      dayNumber: day,
-      meals: {
-        breakfast: set.breakfast,
-        lunch: set.lunch,
-        dinner: set.dinner,
-      },
-      exercises: set.exercises,
-    };
-  }),
+  name: "WHW Diet Level-1 — Mital Sali",
+  days: Array.from({ length: 30 }, (_, i) => ({
+    dayNumber: i + 1,
+    meals: {
+      breakfast: BREAKFAST_DESC,
+      lunch: LUNCH_DESC,
+      dinner: DINNER_DESC,
+    },
+    exercises: EXERCISES,
+  })),
 };
 
 export function PlanProvider({ children }: { children: React.ReactNode }) {
@@ -176,12 +163,6 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
     [user]
   );
 
-  const makeKey = (
-    dayNumber: number,
-    mealType: string,
-    exerciseIndex?: number
-  ) => `${dayNumber}_${mealType}_${exerciseIndex ?? ""}`;
-
   const markComplete = useCallback(
     async (
       dayNumber: number,
@@ -190,7 +171,6 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       completed = true
     ) => {
       if (!user) return;
-      const key = makeKey(dayNumber, mealType, exerciseIndex);
       const existing = progress.find(
         (p) =>
           p.userId === user.id &&
@@ -209,18 +189,19 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
             : p
         );
       } else {
-        const entry: ProgressEntry = {
-          userId: user.id,
-          dayNumber,
-          mealType,
-          exerciseIndex,
-          completed,
-          timestamp: new Date().toISOString(),
-        };
-        updated = [...progress, entry];
+        updated = [
+          ...progress,
+          {
+            userId: user.id,
+            dayNumber,
+            mealType,
+            exerciseIndex,
+            completed,
+            timestamp: new Date().toISOString(),
+          },
+        ];
       }
       await saveProgress(updated);
-      void key;
     },
     [user, progress, saveProgress]
   );
@@ -251,16 +232,18 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
             : p
         );
       } else {
-        const entry: ProgressEntry = {
-          userId: user.id,
-          dayNumber,
-          mealType,
-          exerciseIndex,
-          completed: false,
-          photoUri,
-          timestamp: new Date().toISOString(),
-        };
-        updated = [...progress, entry];
+        updated = [
+          ...progress,
+          {
+            userId: user.id,
+            dayNumber,
+            mealType,
+            exerciseIndex,
+            completed: false,
+            photoUri,
+            timestamp: new Date().toISOString(),
+          },
+        ];
       }
       await saveProgress(updated);
     },
@@ -296,14 +279,15 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       exerciseIndex?: number
     ) => {
       if (!user) return false;
-      const entry = progress.find(
-        (p) =>
-          p.userId === user.id &&
-          p.dayNumber === dayNumber &&
-          p.mealType === mealType &&
-          p.exerciseIndex === exerciseIndex
+      return (
+        progress.find(
+          (p) =>
+            p.userId === user.id &&
+            p.dayNumber === dayNumber &&
+            p.mealType === mealType &&
+            p.exerciseIndex === exerciseIndex
+        )?.completed ?? false
       );
-      return entry?.completed ?? false;
     },
     [user, progress]
   );
@@ -315,14 +299,13 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
       exerciseIndex?: number
     ) => {
       if (!user) return undefined;
-      const entry = progress.find(
+      return progress.find(
         (p) =>
           p.userId === user.id &&
           p.dayNumber === dayNumber &&
           p.mealType === mealType &&
           p.exerciseIndex === exerciseIndex
-      );
-      return entry?.photoUri;
+      )?.photoUri;
     },
     [user, progress]
   );

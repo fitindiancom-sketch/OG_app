@@ -28,6 +28,12 @@ const MEAL_ICONS = {
   dinner: "🌙",
 };
 
+const MEAL_TIMES = {
+  breakfast: "7:00 AM – 11:00 AM",
+  lunch: "11:00 AM – 2:00 PM",
+  dinner: "6:00 PM – 9:00 PM",
+};
+
 type TabKey = "meals" | "exercises";
 
 export default function DayDetailScreen() {
@@ -266,6 +272,7 @@ export default function DayDetailScreen() {
                   description={dayPlan.meals[mealType]}
                   label={MEAL_LABELS[mealType]}
                   icon={MEAL_ICONS[mealType]}
+                  timeSlot={MEAL_TIMES[mealType]}
                 />
               ))}
             </>
