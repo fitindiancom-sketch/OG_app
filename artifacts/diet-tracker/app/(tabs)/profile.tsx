@@ -74,14 +74,14 @@ export default function ProfileScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
-  const { plan, currentDay, getCompletionPercent } = usePlan();
+  const { plan, currentDay, getCompletionPercent, dietStartDate } = usePlan();
 
-  const startDate = user?.planStartDate
-    ? new Date(user.planStartDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+  const startDate = dietStartDate
+    ? new Date(dietStartDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : "Not set";
 
-  const endDate = user?.planStartDate
-    ? new Date(new Date(user.planStartDate).getTime() + 29 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", {
+  const endDate = dietStartDate
+    ? new Date(new Date(dietStartDate).getTime() + 29 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", {
         month: "long",
         day: "numeric",
         year: "numeric",

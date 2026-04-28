@@ -17,29 +17,44 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/context/AuthContext";
 import { Feather } from "@expo/vector-icons";
 
+type Mode = "login" | "register";
+
 export default function LoginScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { login } = useAuth();
-  const [userId, setUserId] = useState("");
+  const { login, register } = useAuth();
+
+  const [mode, setMode] = useState<Mode>("login");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleLogin = async () => {
-    if (!userId.trim() || !password.trim()) {
-      setError("Please enter your User ID and password");
+  const handleSubmit = async () => {
+    if (!email.trim() || !password.trim()) {
+      setError("Please enter your email and password");
+      return;
+    }
+    if (mode === "register" && (!name.trim() || !phone.trim())) {
+      setError("Please enter your name and phone number");
       return;
     }
     setError("");
     setLoading(true);
     try {
-      await login(userId, password);
+      if (mode === "login") {
+        await login(email, password);
+      } else {
+        await register({ email, password, name, phone, city: city || undefined });
+      }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Login failed";
+      const msg = e instanceof Error ? e.message : `${mode === "login" ? "Login" : "Sign up"} failed`;
       setError(msg);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
@@ -48,23 +63,15 @@ export default function LoginScreen() {
   };
 
   const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    scroll: {
-      flex: 1,
-    },
+    container: { flex: 1, backgroundColor: colors.background },
+    scroll: { flex: 1 },
     content: {
       flex: 1,
       paddingHorizontal: 28,
       paddingTop: insets.top + (Platform.OS === "web" ? 67 : 40),
       paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 20),
     },
-    logoArea: {
-      alignItems: "center",
-      marginBottom: 48,
-    },
+    logoArea: { alignItems: "center", marginBottom: 36 },
     logoCircle: {
       width: 80,
       height: 80,
@@ -81,7 +88,7 @@ export default function LoginScreen() {
     },
     appName: {
       fontSize: 28,
-      fontWeight: "700" as const,
+      fontWeight: "700",
       color: colors.foreground,
       fontFamily: "Inter_700Bold",
       marginBottom: 6,
@@ -104,7 +111,7 @@ export default function LoginScreen() {
     },
     formTitle: {
       fontSize: 20,
-      fontWeight: "700" as const,
+      fontWeight: "700",
       color: colors.foreground,
       fontFamily: "Inter_700Bold",
       marginBottom: 6,
@@ -113,11 +120,11 @@ export default function LoginScreen() {
       fontSize: 13,
       color: colors.mutedForeground,
       fontFamily: "Inter_400Regular",
-      marginBottom: 24,
+      marginBottom: 20,
     },
     inputLabel: {
       fontSize: 13,
-      fontWeight: "600" as const,
+      fontWeight: "600",
       color: colors.foreground,
       fontFamily: "Inter_600SemiBold",
       marginBottom: 8,
@@ -130,11 +137,9 @@ export default function LoginScreen() {
       borderColor: colors.input,
       borderRadius: 12,
       paddingHorizontal: 14,
-      marginBottom: 18,
+      marginBottom: 16,
     },
-    inputIcon: {
-      marginRight: 10,
-    },
+    inputIcon: { marginRight: 10 },
     input: {
       flex: 1,
       height: 48,
@@ -173,28 +178,26 @@ export default function LoginScreen() {
     },
     loginBtnText: {
       fontSize: 16,
-      fontWeight: "700" as const,
+      fontWeight: "700",
       color: colors.primaryForeground,
       fontFamily: "Inter_700Bold",
     },
-    demoHint: {
-      marginTop: 24,
-      backgroundColor: colors.secondary,
-      borderRadius: 12,
-      padding: 14,
+    switchRow: {
+      marginTop: 18,
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 6,
     },
-    demoTitle: {
-      fontSize: 12,
-      fontWeight: "700" as const,
-      color: colors.primary,
-      fontFamily: "Inter_700Bold",
-      marginBottom: 6,
-    },
-    demoItem: {
-      fontSize: 12,
+    switchText: {
+      fontSize: 13,
       color: colors.mutedForeground,
       fontFamily: "Inter_400Regular",
-      marginBottom: 2,
+    },
+    switchLink: {
+      fontSize: 13,
+      color: colors.primary,
+      fontFamily: "Inter_700Bold",
+      fontWeight: "700",
     },
   });
 
@@ -203,7 +206,11 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <ScrollView style={styles.scroll} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.content}>
           <View style={styles.logoArea}>
             <View style={styles.logoCircle}>
@@ -214,22 +221,75 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Welcome back</Text>
-            <Text style={styles.formSubtitle}>Sign in with your assigned credentials</Text>
+            <Text style={styles.formTitle}>
+              {mode === "login" ? "Welcome back" : "Create your account"}
+            </Text>
+            <Text style={styles.formSubtitle}>
+              {mode === "login"
+                ? "Sign in with your email and password"
+                : "Sign up to start your diet journey"}
+            </Text>
 
-            <Text style={styles.inputLabel}>User ID</Text>
+            {mode === "register" && (
+              <>
+                <Text style={styles.inputLabel}>Full Name</Text>
+                <View style={styles.inputWrapper}>
+                  <Feather name="user" size={16} color={colors.mutedForeground} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Mital Sali"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                  />
+                </View>
+              </>
+            )}
+
+            <Text style={styles.inputLabel}>Email</Text>
             <View style={styles.inputWrapper}>
-              <Feather name="user" size={16} color={colors.mutedForeground} style={styles.inputIcon} />
+              <Feather name="mail" size={16} color={colors.mutedForeground} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
-                placeholder="e.g. user001"
+                placeholder="you@example.com"
                 placeholderTextColor={colors.mutedForeground}
-                value={userId}
-                onChangeText={setUserId}
+                value={email}
+                onChangeText={setEmail}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType="email-address"
               />
             </View>
+
+            {mode === "register" && (
+              <>
+                <Text style={styles.inputLabel}>Phone</Text>
+                <View style={styles.inputWrapper}>
+                  <Feather name="phone" size={16} color={colors.mutedForeground} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="9999999999"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+
+                <Text style={styles.inputLabel}>City (optional)</Text>
+                <View style={styles.inputWrapper}>
+                  <Feather name="map-pin" size={16} color={colors.mutedForeground} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="e.g. Mumbai"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={city}
+                    onChangeText={setCity}
+                  />
+                </View>
+              </>
+            )}
 
             <Text style={styles.inputLabel}>Password</Text>
             <View style={styles.inputWrapper}>
@@ -257,24 +317,35 @@ export default function LoginScreen() {
 
             <Pressable
               style={({ pressed }) => [styles.loginBtn, { opacity: pressed || loading ? 0.85 : 1 }]}
-              onPress={handleLogin}
+              onPress={handleSubmit}
               disabled={loading}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Text style={styles.loginBtnText}>Sign In</Text>
+                  <Text style={styles.loginBtnText}>
+                    {mode === "login" ? "Sign In" : "Create Account"}
+                  </Text>
                   <Feather name="arrow-right" size={18} color="#fff" />
                 </>
               )}
             </Pressable>
 
-            <View style={styles.demoHint}>
-              <Text style={styles.demoTitle}>Demo Credentials</Text>
-              <Text style={styles.demoItem}>ID: user001  |  Password: diet123</Text>
-              <Text style={styles.demoItem}>ID: user002  |  Password: healthy2024</Text>
-              <Text style={styles.demoItem}>ID: admin001  |  Password: admin123</Text>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchText}>
+                {mode === "login" ? "Don't have an account?" : "Already have an account?"}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setMode(mode === "login" ? "register" : "login");
+                  setError("");
+                }}
+              >
+                <Text style={styles.switchLink}>
+                  {mode === "login" ? "Sign up" : "Sign in"}
+                </Text>
+              </Pressable>
             </View>
           </View>
         </View>

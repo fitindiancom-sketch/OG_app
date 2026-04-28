@@ -6,20 +6,30 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { authApi, getAuthToken, setAuthToken, type AuthClient } from "@/lib/api";
 
 export interface User {
   id: string;
   name: string;
-  assignedPlanId: string | null;
-  planStartDate: string | null;
+  email: string | null;
+  phone: string | null;
+  clientCode: string;
 }
 
 interface AuthContextValue {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (userId: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (input: {
+    email: string;
+    password: string;
+    name: string;
+    phone: string;
+    city?: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -27,32 +37,22 @@ const AuthContext = createContext<AuthContextValue>({
   token: null,
   isLoading: true,
   login: async () => {},
+  register: async () => {},
   logout: async () => {},
+  refresh: async () => {},
 });
 
-export const DEMO_USERS: { id: string; name: string; password: string; assignedPlanId: string; planStartDate: string }[] = [
-  {
-    id: "user001",
-    name: "Sarah Johnson",
-    password: "diet123",
-    assignedPlanId: "plan001",
-    planStartDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "user002",
-    name: "Mike Chen",
-    password: "healthy2024",
-    assignedPlanId: "plan001",
-    planStartDate: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "admin001",
-    name: "Admin",
-    password: "admin123",
-    assignedPlanId: "plan001",
-    planStartDate: new Date().toISOString(),
-  },
-];
+const USER_KEY = "auth_user";
+
+function toUser(c: AuthClient): User {
+  return {
+    id: c.id,
+    name: c.name,
+    email: c.email,
+    phone: c.phone,
+    clientCode: c.client_code,
+  };
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -62,11 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const storedToken = await AsyncStorage.getItem("auth_token");
-        const storedUser = await AsyncStorage.getItem("auth_user");
-        if (storedToken && storedUser) {
+        const storedToken = await getAuthToken();
+        const storedUserRaw = await AsyncStorage.getItem(USER_KEY);
+        if (storedToken && storedUserRaw) {
           setToken(storedToken);
-          setUser(JSON.parse(storedUser));
+          setUser(JSON.parse(storedUserRaw));
         }
       } catch {
         // ignore
@@ -76,37 +76,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, []);
 
-  const login = useCallback(async (userId: string, password: string) => {
-    const found = DEMO_USERS.find(
-      (u) => u.id === userId.trim() && u.password === password
-    );
-    if (!found) {
-      throw new Error("Invalid user ID or password");
-    }
-
-    const mockToken = `jwt_${found.id}_${Date.now()}`;
-    const userData: User = {
-      id: found.id,
-      name: found.name,
-      assignedPlanId: found.assignedPlanId,
-      planStartDate: found.planStartDate,
-    };
-
-    await AsyncStorage.setItem("auth_token", mockToken);
-    await AsyncStorage.setItem("auth_user", JSON.stringify(userData));
-    setToken(mockToken);
-    setUser(userData);
+  const persist = useCallback(async (t: string, u: User) => {
+    await setAuthToken(t);
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
+    setToken(t);
+    setUser(u);
   }, []);
 
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const res = await authApi.login({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      await persist(res.token, toUser(res.client));
+    },
+    [persist],
+  );
+
+  const register = useCallback(
+    async (input: {
+      email: string;
+      password: string;
+      name: string;
+      phone: string;
+      city?: string;
+    }) => {
+      const res = await authApi.register({
+        ...input,
+        email: input.email.trim().toLowerCase(),
+      });
+      await persist(res.token, toUser(res.client));
+    },
+    [persist],
+  );
+
   const logout = useCallback(async () => {
-    await AsyncStorage.removeItem("auth_token");
-    await AsyncStorage.removeItem("auth_user");
+    await setAuthToken(null);
+    await AsyncStorage.removeItem(USER_KEY);
     setToken(null);
     setUser(null);
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      const me = await authApi.me();
+      const u: User = {
+        id: me.id,
+        name: me.name,
+        email: me.email,
+        phone: me.phone,
+        clientCode: me.client_code,
+      };
+      await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
+      setUser(u);
+    } catch {
+      // token invalid → logout
+      await logout();
+    }
+  }, [logout]);
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, token, isLoading, login, register, logout, refresh }}
+    >
       {children}
     </AuthContext.Provider>
   );

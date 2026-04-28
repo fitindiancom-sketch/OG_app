@@ -14,6 +14,7 @@ import {
 import { useColors } from "@/hooks/useColors";
 import { usePlan } from "@/context/PlanContext";
 import { isMealUploadAllowed, isEndOfDay, MEAL_WINDOWS } from "@/utils/timeUtils";
+import { uploadPhoto } from "@/lib/api";
 import { Feather } from "@expo/vector-icons";
 
 interface MealCardProps {
@@ -114,7 +115,18 @@ export function MealCard({
     }
     setUploading(true);
     try {
-      await savePhoto(dayNumber, mealType, undefined, uriToSave);
+      let finalUri = uriToSave;
+      try {
+        const uploaded = await uploadPhoto({
+          uri: uriToSave,
+          mealType,
+          dayNumber,
+        });
+        finalUri = uploaded.photo_url;
+      } catch (cloudErr) {
+        console.warn("Cloud upload failed, keeping local copy", cloudErr);
+      }
+      await savePhoto(dayNumber, mealType, undefined, finalUri);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);
       setPendingPhoto(null);

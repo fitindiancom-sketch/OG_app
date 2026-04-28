@@ -14,6 +14,7 @@ import {
 import { useColors } from "@/hooks/useColors";
 import { usePlan } from "@/context/PlanContext";
 import { isExerciseUploadAllowed, isEndOfDay, EXERCISE_WINDOWS } from "@/utils/timeUtils";
+import { uploadPhoto } from "@/lib/api";
 import { Feather } from "@expo/vector-icons";
 
 interface ExerciseCardProps {
@@ -108,7 +109,19 @@ export function ExerciseCard({ dayNumber, exerciseIndex, description }: Exercise
     }
     setUploading(true);
     try {
-      await savePhoto(dayNumber, "exercise", exerciseIndex, uriToSave);
+      let finalUri = uriToSave;
+      try {
+        const uploaded = await uploadPhoto({
+          uri: uriToSave,
+          mealType: "exercise",
+          dayNumber,
+          remarks: `exercise_${exerciseIndex}`,
+        });
+        finalUri = uploaded.photo_url;
+      } catch (cloudErr) {
+        console.warn("Cloud upload failed, keeping local copy", cloudErr);
+      }
+      await savePhoto(dayNumber, "exercise", exerciseIndex, finalUri);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSubmitted(true);
       setPendingPhoto(null);
