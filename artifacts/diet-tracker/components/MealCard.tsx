@@ -34,18 +34,17 @@ export function MealCard({
   timeSlot,
 }: MealCardProps) {
   const colors = useColors();
-  const { markComplete, savePhoto, isItemComplete, getPhotoUri, currentDay } = usePlan();
+  const { markComplete, savePhoto, isItemComplete, getPhotoUri, currentDay, isStarted } = usePlan();
   const completed = isItemComplete(dayNumber, mealType);
   const photoUri = getPhotoUri(dayNumber, mealType);
   const [uploading, setUploading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
 
-  const { allowed: uploadAllowed, reason: lockReason } = isMealUploadAllowed(
-    mealType,
-    dayNumber,
-    currentDay
-  );
+  const baseGate = isMealUploadAllowed(mealType, dayNumber, currentDay);
+  const { allowed: uploadAllowed, reason: lockReason } = !isStarted
+    ? { allowed: false, reason: "Tap 'Start Diet' on the home page to unlock uploads." }
+    : baseGate;
   const endOfDay = isEndOfDay();
   const isAlreadySubmitted = submitted || (!pendingPhoto && !!photoUri);
   const displayPhoto = pendingPhoto ?? photoUri;

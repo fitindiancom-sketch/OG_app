@@ -38,6 +38,10 @@ interface PlanContextValue {
   plan: DietPlan | null;
   progress: ProgressEntry[];
   currentDay: number;
+  isStarted: boolean;
+  dietStartDate: string | null;
+  daysToExpire: number;
+  startDiet: () => Promise<void>;
   markComplete: (
     dayNumber: number,
     mealType: "breakfast" | "lunch" | "dinner" | "exercise",
@@ -68,6 +72,10 @@ const PlanContext = createContext<PlanContextValue>({
   plan: null,
   progress: [],
   currentDay: 1,
+  isStarted: false,
+  dietStartDate: null,
+  daysToExpire: 10,
+  startDiet: async () => {},
   markComplete: async () => {},
   savePhoto: async () => {},
   getDayProgress: () => [],
@@ -122,33 +130,91 @@ const DEMO_PLAN: DietPlan = {
   })),
 };
 
+const EXPIRY_DAYS = 10;
+
 export function PlanProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [plan] = useState<DietPlan>(DEMO_PLAN);
   const [progress, setProgress] = useState<ProgressEntry[]>([]);
-  const [currentDay, setCurrentDay] = useState(1);
+  const [dietStartDate, setDietStartDate] = useState<string | null>(null);
+  const [planAssignedDate, setPlanAssignedDate] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setDietStartDate(null);
+      setPlanAssignedDate(null);
+      setProgress([]);
+      return;
+    }
     (async () => {
       try {
         const stored = await AsyncStorage.getItem(`progress_${user.id}`);
         if (stored) {
           setProgress(JSON.parse(stored));
+        } else {
+          setProgress([]);
         }
       } catch {
         // ignore
       }
 
-      if (user.planStartDate) {
-        const startDate = new Date(user.planStartDate);
-        const now = new Date();
-        const diffMs = now.getTime() - startDate.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
-        const day = Math.max(1, Math.min(30, diffDays));
-        setCurrentDay(day);
+      try {
+        const start = await AsyncStorage.getItem(`dietStart_${user.id}`);
+        setDietStartDate(start);
+      } catch {
+        setDietStartDate(null);
+      }
+
+      try {
+        let assigned = await AsyncStorage.getItem(`planAssigned_${user.id}`);
+        if (!assigned) {
+          assigned = new Date().toISOString();
+          await AsyncStorage.setItem(`planAssigned_${user.id}`, assigned);
+        }
+        setPlanAssignedDate(assigned);
+      } catch {
+        setPlanAssignedDate(new Date().toISOString());
       }
     })();
+  }, [user]);
+
+  const isStarted = !!dietStartDate;
+
+  const currentDay = (() => {
+    if (!dietStartDate) return 1;
+    const startDate = new Date(dietStartDate);
+    const now = new Date();
+    const startMidnight = new Date(
+      startDate.getFullYear(),
+      startDate.getMonth(),
+      startDate.getDate(),
+    );
+    const todayMidnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const diffDays = Math.floor(
+      (todayMidnight.getTime() - startMidnight.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    return Math.max(1, Math.min(30, diffDays + 1));
+  })();
+
+  const daysToExpire = (() => {
+    if (isStarted || !planAssignedDate) return EXPIRY_DAYS;
+    const assigned = new Date(planAssignedDate);
+    const now = new Date();
+    const diffDays = Math.floor(
+      (now.getTime() - assigned.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    return Math.max(0, EXPIRY_DAYS - diffDays);
+  })();
+
+  const startDiet = useCallback(async () => {
+    if (!user) return;
+    const now = new Date().toISOString();
+    await AsyncStorage.setItem(`dietStart_${user.id}`, now);
+    setDietStartDate(now);
   }, [user]);
 
   const saveProgress = useCallback(
@@ -316,6 +382,10 @@ export function PlanProvider({ children }: { children: React.ReactNode }) {
         plan,
         progress,
         currentDay,
+        isStarted,
+        dietStartDate,
+        daysToExpire,
+        startDiet,
         markComplete,
         savePhoto,
         getDayProgress,
