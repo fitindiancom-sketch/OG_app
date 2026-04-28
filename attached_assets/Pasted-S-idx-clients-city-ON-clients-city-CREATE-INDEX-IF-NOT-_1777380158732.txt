@@ -1,0 +1,208 @@
+S idx_clients_city                ON clients (city);
+CREATE INDEX IF NOT EXISTS idx_clients_registration_type   ON clients (registration_type);
+CREATE INDEX IF NOT EXISTS idx_clients_plan_end_date       ON clients (plan_end_date);
+CREATE INDEX IF NOT EXISTS idx_clients_last_activity_date  ON clients (last_activity_date);
+CREATE INDEX IF NOT EXISTS idx_clients_created_at          ON clients (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clients_phone               ON clients (phone);
+CREATE INDEX IF NOT EXISTS idx_clients_name_trgm           ON clients USING gin (name gin_trgm_ops);
+-- Enable trgm only if needed for fuzzy search
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+DROP TRIGGER IF EXISTS trg_clients_updated_at ON clients;
+CREATE TRIGGER trg_clients_updated_at
+  BEFORE UPDATE ON clients
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =====================================================================
+-- TABLE 2: DIET_PLANS
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS diet_plans (
+  id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+  plan_code       TEXT            UNIQUE NOT NULL,                              -- e.g. dp-1001
+  client_id       UUID            NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  dietitian_id    UUID            REFERENCES staff(id)  ON DELETE SET NULL,
+  plan_name       TEXT            NOT NULL,
+  goal_weight_kg  NUMERIC(5,2),
+  water_goal_l    NUMERIC(4,1)    DEFAULT 3.0 CHECK (water_goal_l IS NULL OR water_goal_l >= 0),
+  status          plan_status_t   NOT NULL DEFAULT 'draft',
+  start_date      DATE,
+  end_date        DATE,
+  created_at      TIMESTAMPTZ     NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ     NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_dp_window CHECK (
+    end_date IS NULL OR start_date IS NULL OR end_date >= start_date
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_diet_plans_client_id    ON diet_plans (client_id);
+CREATE INDEX IF NOT EXISTS idx_diet_plans_dietitian_id ON diet_plans (dietitian_id);
+CREATE INDEX IF NOT EXISTS idx_diet_plans_status       ON diet_plans (status);
+CREATE INDEX IF NOT EXISTS idx_diet_plans_created_at   ON diet_plans (created_at DESC);
+
+DROP TRIGGER IF EXISTS trg_diet_plans_updated_at ON diet_plans;
+CREATE TRIGGER trg_diet_plans_updated_at
+  BEFORE UPDATE ON diet_plans
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =====================================================================
+-- TABLE 3: DIET_PLAN_MEALS
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS diet_plan_meals (
+  id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  diet_plan_id  UUID         NOT NULL REFERENCES diet_plans(id) ON DELETE CASCADE,
+  meal_type     meal_type_t  NOT NULL,
+  content       TEXT         NOT NULL,
+  order_index   SMALLINT     NOT NULL DEFAULT 0,
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+
+  -- One row per meal type per plan keeps the builder UI simple
+  CONSTRAINT uq_plan_meal UNIQUE (diet_plan_id, meal_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_diet_plan_meals_plan ON diet_plan_meals (diet_plan_id, order_index);
+
+-- =====================================================================
+-- TABLE 4: DIET_PLAN_SECTIONS
+--   Left-side info blocks: Must Do, Vegetables, Fruits, Water
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS diet_plan_sections (
+  id            UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+  diet_plan_id  UUID            NOT NULL REFERENCES diet_plans(id) ON DELETE CASCADE,
+  section_type  plan_section_t  NOT NULL,
+  content       TEXT            NOT NULL,
+  created_at    TIMESTAMPTZ     NOT NULL DEFAULT now(),
+
+  CONSTRAINT uq_plan_section UNIQUE (diet_plan_id, section_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_diet_plan_sections_plan ON diet_plan_sections (diet_plan_id);
+
+-- =====================================================================
+-- TABLE 5: TEMPLATES
+--   Reusable snippets for meals, must_do, instructions, vegetables, fruits
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS templates (
+  id           UUID                PRIMARY KEY DEFAULT gen_random_uuid(),
+  category     template_category_t NOT NULL,
+  title        TEXT                NOT NULL,
+  content      TEXT                NOT NULL,
+  created_by   UUID                REFERENCES staff(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ         NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ         NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_templates_category ON templates (category);
+CREATE INDEX IF NOT EXISTS idx_templates_title    ON templates (title);
+
+DROP TRIGGER IF EXISTS trg_templates_updated_at ON templates;
+CREATE TRIGGER trg_templates_updated_at
+  BEFORE UPDATE ON templates
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =====================================================================
+-- TABLE 6: PHOTOS
+--   Client uploaded meal photos. Store URL only (Cloudinary / S3 / Supabase Storage).
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS photos (
+  id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id   UUID          NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  photo_url   TEXT          NOT NULL,
+  meal_type   photo_meal_t  NOT NULL DEFAULT 'other',
+  remarks     TEXT,
+  uploaded_at TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_photos_client_id   ON photos (client_id);
+CREATE INDEX IF NOT EXISTS idx_photos_uploaded_at ON photos (uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_photos_meal_type   ON photos (meal_type);
+
+-- =====================================================================
+-- TABLE 7: PROGRESS_LOGS
+--   Weight/measurement entries over time
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS progress_logs (
+  id          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id   UUID          NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  weight_kg   NUMERIC(5,2)  CHECK (weight_kg IS NULL OR weight_kg > 0),
+  notes       TEXT,
+  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_progress_logs_client_id  ON progress_logs (client_id);
+CREATE INDEX IF NOT EXISTS idx_progress_logs_created_at ON progress_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_progress_logs_client_date
+  ON progress_logs (client_id, created_at DESC);
+
+-- =====================================================================
+-- TABLE 8: PAYMENTS
+--   Plan purchases / renewals
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS payments (
+  id                  UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id           UUID              NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  amount              NUMERIC(10,2)     NOT NULL CHECK (amount >= 0),
+  currency            CHAR(3)           NOT NULL DEFAULT 'INR',
+  payment_date        DATE              NOT NULL DEFAULT CURRENT_DATE,
+  plan_duration_days  INTEGER           NOT NULL CHECK (plan_duration_days > 0),
+  renewal_due_date    DATE              NOT NULL,
+  status              payment_status_t  NOT NULL DEFAULT 'paid',
+  reference           TEXT,                                              -- gateway txn id
+  notes               TEXT,
+  created_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ       NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_client_id        ON payments (client_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status           ON payments (status);
+CREATE INDEX IF NOT EXISTS idx_payments_renewal_due_date ON payments (renewal_due_date);
+CREATE INDEX IF NOT EXISTS idx_payments_payment_date     ON payments (payment_date DESC);
+
+DROP TRIGGER IF EXISTS trg_payments_updated_at ON payments;
+CREATE TRIGGER trg_payments_updated_at
+  BEFORE UPDATE ON payments
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =====================================================================
+-- DERIVED VIEW: Client lifecycle status (computed from dates)
+-- Use this to keep clients.status in sync; or query the view directly.
+-- =====================================================================
+CREATE OR REPLACE VIEW v_client_status AS
+SELECT
+  c.id,
+  CASE
+    WHEN c.plan_start_date IS NULL THEN 'plan_not_started'::client_status_t
+    WHEN c.plan_end_date IS NOT NULL AND c.plan_end_date < CURRENT_DATE - INTERVAL '7 days'
+      THEN 'inactive'::client_status_t
+    WHEN c.plan_end_date IS NOT NULL AND c.plan_end_date <= CURRENT_DATE + INTERVAL '7 days'
+      THEN 'renewal_due'::client_status_t
+    WHEN c.last_activity_date IS NULL OR c.last_activity_date < CURRENT_DATE - INTERVAL '14 days'
+      THEN 'not_following_no_response'::client_status_t
+    WHEN c.last_activity_date < CURRENT_DATE - INTERVAL '5 days'
+      THEN 'few_days_then_stopped'::client_status_t
+    WHEN c.plan_start_date <= CURRENT_DATE - INTERVAL '30 days'
+      THEN 'completed_30_days'::client_status_t
+    ELSE 'active'::client_status_t
+  END AS computed_status
+FROM clients c;
+
+-- One-shot status refresh helper. Call from cron / edge function nightly.
+CREATE OR REPLACE FUNCTION refresh_client_statuses()
+RETURNS INTEGER AS $$
+DECLARE
+  updated INTEGER;
+BEGIN
+  WITH src AS (SELECT id, computed_status FROM v_client_status)
+  UPDATE clients c
+     SET status = src.computed_status
+    FROM src
+   WHERE c.id = src.id
+     AND c.status IS DISTINCT FROM src.computed_status;
+  GET DIAGNOSTICS updated = ROW_COUNT;
+  RETURN updated;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =====================================================================
+-- END OF SCHEMA
+-- =====================================================================
