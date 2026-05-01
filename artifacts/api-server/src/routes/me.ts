@@ -1,102 +1,65 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import multer from "multer";
-import { supabase, SUPABASE_BUCKET, SUPABASE_URL } from "../lib/supabase";
+import path from "path";
+import fs from "fs";
+import { query, queryOne } from "../lib/db";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+
+// Local disk storage for photos
+const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+  },
+});
+
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
+
+// Serve uploaded files statically
+router.use("/uploads", (req: Request, res: Response) => {
+  const safePath = path.normalize(req.path).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(UPLOADS_DIR, safePath);
+  if (!filePath.startsWith(UPLOADS_DIR) || !fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "File not found" });
+  }
+  res.sendFile(filePath);
 });
 
 router.use(requireAuth);
 
-// Current client profile
 router.get("/me", async (req: Request, res: Response) => {
-  const { data, error } = await supabase
-    .from("clients")
-    .select(
-      "id, client_code, name, email, phone, city, status, plan_start_date, plan_end_date, created_at",
-    )
-    .eq("id", req.auth!.clientId)
-    .single();
-  if (error) return res.status(404).json({ error: error.message });
-  return res.json(data);
+  const row = await queryOne(
+    `SELECT id, client_code, name, email, phone, city, status, plan_start_date, plan_end_date, created_at
+     FROM clients WHERE id = $1`,
+    [req.auth!.clientId]
+  );
+  if (!row) return res.status(404).json({ error: "Client not found" });
+  return res.json(row);
 });
 
-// Active diet plan with meals + sections
-router.get("/me/diet-plan", async (req: Request, res: Response) => {
-  const clientId = req.auth!.clientId;
-  const { data: plans, error } = await supabase
-    .from("diet_plans")
-    .select(
-      "id, plan_code, plan_name, status, goal_weight_kg, water_goal_l, start_date, end_date, created_at",
-    )
-    .eq("client_id", clientId)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (error) return res.status(500).json({ error: error.message });
-
-  const plan = plans?.[0] ?? null;
-  if (!plan) return res.json({ plan: null, meals: [], sections: [] });
-
-  const [{ data: meals }, { data: sections }] = await Promise.all([
-    supabase
-      .from("diet_plan_meals")
-      .select("id, meal_type, content, order_index")
-      .eq("diet_plan_id", plan.id)
-      .order("order_index", { ascending: true }),
-    supabase
-      .from("diet_plan_sections")
-      .select("id, section_type, content")
-      .eq("diet_plan_id", plan.id),
-  ]);
-
-  return res.json({
-    plan,
-    meals: meals ?? [],
-    sections: sections ?? [],
-  });
+router.get("/me/diet-plan", async (_req: Request, res: Response) => {
+  return res.json({ plan: null, meals: [], sections: [] });
 });
 
-// Mark plan as started
 router.post("/me/start-plan", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
   const today = new Date().toISOString().slice(0, 10);
-
-  const { data: plans } = await supabase
-    .from("diet_plans")
-    .select("id")
-    .eq("client_id", clientId)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  const planId = plans?.[0]?.id;
-  if (!planId) return res.status(404).json({ error: "No plan assigned" });
-
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + 30);
-
-  const { data, error } = await supabase
-    .from("diet_plans")
-    .update({
-      start_date: today,
-      end_date: endDate.toISOString().slice(0, 10),
-      status: "active",
-    })
-    .eq("id", planId)
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-
-  await supabase
-    .from("clients")
-    .update({ plan_start_date: today, plan_end_date: endDate.toISOString().slice(0, 10) })
-    .eq("id", clientId);
-
-  return res.json(data);
+  const end = endDate.toISOString().slice(0, 10);
+  await query(
+    "UPDATE clients SET plan_start_date = $1, plan_end_date = $2, status = 'active' WHERE id = $3",
+    [today, end, clientId]
+  );
+  return res.json({ start_date: today, end_date: end, status: "active" });
 });
 
-// Photo upload (multipart) → Supabase Storage → photos row
 router.post(
   "/me/photos",
   upload.single("photo"),
@@ -113,140 +76,108 @@ router.post(
         : null;
       const diet_plan_id = (req.body?.diet_plan_id as string) || null;
 
-      const ext = (file.originalname.split(".").pop() || "jpg").toLowerCase();
-      const key = `${clientId}/${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}.${ext}`;
+      const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
+      const proto = req.headers["x-forwarded-proto"] || "https";
+      const photo_url = `${proto}://${host}/api/uploads/${file.filename}`;
 
-      const { error: upErr } = await supabase.storage
-        .from(SUPABASE_BUCKET)
-        .upload(key, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false,
-        });
-      if (upErr) return res.status(500).json({ error: upErr.message });
+      const row = await queryOne(
+        `INSERT INTO photos (client_id, photo_url, meal_type, remarks, day_number, diet_plan_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, photo_url, meal_type, remarks, day_number, uploaded_at`,
+        [clientId, photo_url, meal_type, remarks, day_number, diet_plan_id]
+      );
 
-      const photo_url = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${key}`;
-
-      const { data, error } = await supabase
-        .from("photos")
-        .insert({
-          client_id: clientId,
-          photo_url,
-          meal_type,
-          remarks,
-          day_number,
-          diet_plan_id,
-        })
-        .select()
-        .single();
-      if (error) return res.status(500).json({ error: error.message });
-
-      return res.status(201).json(data);
+      return res.status(201).json(row);
     } catch (e) {
       return res.status(500).json({ error: (e as Error).message });
     }
-  },
+  }
 );
 
 router.get("/me/photos", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
   const day = req.query.day ? Number(req.query.day) : null;
 
-  let q = supabase
-    .from("photos")
-    .select("id, photo_url, meal_type, remarks, day_number, uploaded_at")
-    .eq("client_id", clientId)
-    .order("uploaded_at", { ascending: false });
-  if (day) q = q.eq("day_number", day);
-
-  const { data, error } = await q;
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data ?? []);
+  let rows;
+  if (day) {
+    rows = await query(
+      `SELECT id, photo_url, meal_type, remarks, day_number, uploaded_at
+       FROM photos WHERE client_id = $1 AND day_number = $2 ORDER BY uploaded_at DESC`,
+      [clientId, day]
+    );
+  } else {
+    rows = await query(
+      `SELECT id, photo_url, meal_type, remarks, day_number, uploaded_at
+       FROM photos WHERE client_id = $1 ORDER BY uploaded_at DESC`,
+      [clientId]
+    );
+  }
+  return res.json(rows);
 });
 
 router.get("/me/photos/:id/comments", async (req: Request, res: Response) => {
-  const { data, error } = await supabase
-    .from("photo_comments")
-    .select("id, comment, created_at, read_at, staff_id")
-    .eq("photo_id", req.params.id)
-    .order("created_at", { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data ?? []);
+  const rows = await query(
+    `SELECT id, comment, created_at, read_at, staff_id
+     FROM photo_comments WHERE photo_id = $1 ORDER BY created_at ASC`,
+    [req.params.id]
+  );
+  return res.json(rows);
 });
 
-// Water logs
 router.post("/me/water-logs", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
   const { liters, log_date } = req.body ?? {};
   if (liters == null) return res.status(400).json({ error: "liters required" });
-  const { data, error } = await supabase
-    .from("water_logs")
-    .insert({
-      client_id: clientId,
-      liters,
-      log_date: log_date ?? new Date().toISOString().slice(0, 10),
-    })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(201).json(data);
+  const row = await queryOne(
+    `INSERT INTO water_logs (client_id, liters, log_date) VALUES ($1, $2, $3) RETURNING *`,
+    [clientId, liters, log_date ?? new Date().toISOString().slice(0, 10)]
+  );
+  return res.status(201).json(row);
 });
 
 router.get("/me/water-logs", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
   const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from("water_logs")
-    .select("*")
-    .eq("client_id", clientId)
-    .eq("log_date", date)
-    .order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data ?? []);
+  const rows = await query(
+    `SELECT * FROM water_logs WHERE client_id = $1 AND log_date = $2 ORDER BY created_at DESC`,
+    [clientId, date]
+  );
+  return res.json(rows);
 });
 
-// Progress logs (weight)
 router.post("/me/progress-logs", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
   const { weight_kg, notes } = req.body ?? {};
-  const { data, error } = await supabase
-    .from("progress_logs")
-    .insert({ client_id: clientId, weight_kg, notes: notes ?? null })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(201).json(data);
+  const row = await queryOne(
+    `INSERT INTO progress_logs (client_id, weight_kg, notes) VALUES ($1, $2, $3) RETURNING *`,
+    [clientId, weight_kg ?? null, notes ?? null]
+  );
+  return res.status(201).json(row);
 });
 
 router.get("/me/progress-logs", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
-  const { data, error } = await supabase
-    .from("progress_logs")
-    .select("*")
-    .eq("client_id", clientId)
-    .order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data ?? []);
+  const rows = await query(
+    `SELECT * FROM progress_logs WHERE client_id = $1 ORDER BY created_at DESC`,
+    [clientId]
+  );
+  return res.json(rows);
 });
 
-// Device tokens (push notifications)
 router.post("/me/device-tokens", async (req: Request, res: Response) => {
   const clientId = req.auth!.clientId;
   const { expo_push_token, platform } = req.body ?? {};
   if (!expo_push_token) {
     return res.status(400).json({ error: "expo_push_token required" });
   }
-  const { data, error } = await supabase
-    .from("device_tokens")
-    .upsert(
-      { client_id: clientId, expo_push_token, platform: platform ?? null },
-      { onConflict: "client_id,expo_push_token" },
-    )
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(201).json(data);
+  const row = await queryOne(
+    `INSERT INTO device_tokens (client_id, expo_push_token, platform)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (client_id, expo_push_token) DO UPDATE SET platform = EXCLUDED.platform
+     RETURNING *`,
+    [clientId, expo_push_token, platform ?? null]
+  );
+  return res.status(201).json(row);
 });
 
 export default router;
